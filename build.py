@@ -12,7 +12,7 @@ import fontTools.ttLib.tables.otTables as ot
 FONT_VERSION="1.000"
 
 NEW_FAMILY_NAME_STD = "LilexKR Std"             # 영문 600 : 한글 1200 (1:2) 
-NEW_FAMILY_NAME_COMPACT = "LilexKR Compact"     # 영문 528 : 한글 1056 (1:2) --- Monoplex KR과 동일한 너비임
+NEW_FAMILY_NAME_COMPACT = "LilexKR 528"       # 영문 528 : 한글 1056 (1:2) --- Monoplex KR과 동일한 너비임
 NEW_FAMILY_NAME_WIDE = "LilexKR 35"             # 영문 600 : 한글 1000 (3:5)
 LATIN_DIR = "source/Lilex"
 KR_DIR = "source/IBM_Plex_Sans_KR"
@@ -314,8 +314,8 @@ def merge_all():
             build_variant(latin_path, kr_path, weight_key, is_italic, False, 600, 1200, NEW_FAMILY_NAME_STD, out_std)
             print(f"OK {out_std}")
 
-            out_compact = f.replace("Lilex", "LilexKRCompact")
-            build_variant(latin_path, kr_path, weight_key, is_italic, False, 528, 1056, NEW_FAMILY_NAME_COMPACT, out_std)
+            out_compact = f.replace("Lilex", "LilexKR528")
+            build_variant(latin_path, kr_path, weight_key, is_italic, False, 528, 1056, NEW_FAMILY_NAME_COMPACT, out_compact)
             print(f"OK {out_compact}")
 
             out_wide = f.replace("Lilex", "LilexKR35")
