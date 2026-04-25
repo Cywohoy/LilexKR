@@ -15,14 +15,11 @@
 
 한글이 주로 쓰이는 환경에서는 **LilexKR 528**이, 주석 등의 제한적인 부분만 한글로 사용하는 환경에서는 **LilexKR Std** 혹은 **Lilex KR 35**를 사용하는 것이 가독성이 좋습니다. **LilexKR 35**는 **LilexKR Std**보다 한글의 자간이 좁아 가독성 측면에서 나으나, 완전한 1:2 비율 고정폭 글꼴이 아니기에 줄이 똑바르지 않은 곳이 존재할 수 있습니다.
 
-## 빌드
-fonttools 패키지를 사용할 수 있는 환경이라면, build.py만으로 빌드할 수 있습니다. 
-
 ## 라이선스
 Lilex KR 시리즈는 SIL Open Font License 1.1에 따라 배포됩니다.
 
 이 프로젝트는 다음의 원본 폰트들을 기반으로 제작되었습니다:
- * Lilex: Copyright (c) 2019, The Lilex Project Authors (OFL 1.1; https://github.com/mishamyrt/Lilex/blob/master/OFL.txt))
+ * Lilex: Copyright (c) 2019, The Lilex Project Authors (OFL 1.1; https://github.com/mishamyrt/Lilex/blob/master/OFL.txt)
  * IBM Plex Sans KR: Copyright (c) 2017, IBM Corp. with Reserved Font Name "Plex" (OFL 1.1; https://github.com/IBM/plex/blob/master/LICENSE.txt)
 
 허용 범위
