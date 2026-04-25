@@ -16,7 +16,7 @@ from fontTools.subset import Subsetter, Options
 from fontTools.ttLib.tables import otTables as ot
 from ttfautohint import ttfautohint
 
-FONT_VERSION="1.003"
+FONT_VERSION="1.004"
 
 LATIN_DIR = "./source/Lilex"
 LATIN_FILENAME = "Lilex-{style}.ttf"
@@ -113,7 +113,6 @@ def fix_meta(font, family_name, weight_name, is_italic, is_wide, avg_width):
         font['name'].setName(string, nid, 3, 1, 1033)
         font['name'].setName(string, nid, 1, 0, 0)
 
-    # 뭔가 시스템에서 이탤릭을 이상하게 인식해서 고친 흔적
     fs_sel = 0
     if "Bold" in weight_name: fs_sel |= (1 << 5)
     if is_italic: fs_sel |= (1 << 0)
