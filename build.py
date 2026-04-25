@@ -1,22 +1,29 @@
 #!/bin/env python3
 
 import os
+import shutil
 import copy
 from fontTools.ttLib import TTFont
 from fontTools.merge import Merger
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.pens.transformPen import TransformPen
+from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib.tables._g_l_y_f import Glyph
 import fontTools.ttLib.tables.otTables as ot
 
-FONT_VERSION="1.000"
+FONT_VERSION="1.001"
 
-NEW_FAMILY_NAME_STD = "LilexKR Std"             # 영문 600 : 한글 1200 (1:2) 
-NEW_FAMILY_NAME_COMPACT = "LilexKR 528"       # 영문 528 : 한글 1056 (1:2) --- Monoplex KR과 동일한 너비임
-NEW_FAMILY_NAME_WIDE = "LilexKR 35"             # 영문 600 : 한글 1000 (3:5)
-LATIN_DIR = "source/Lilex"
-KR_DIR = "source/IBM_Plex_Sans_KR"
-OUTPUT_DIR = "output"
+FAMILY_NAME_STD = "LilexKR Std"
+FAMILY_NAME_COMPACT = "LilexKR 528"
+FAMILY_NAME_WIDE = "LilexKR 35"
+FILE_NAME_STD = "LilexKRStd"
+FILE_NAME_COMPACT = "LilexKR528"
+FILE_NAME_WIDE = "LilexKR35"
+
+
+LATIN_DIR = "./source/Lilex"
+KR_DIR = "./source/IBM_Plex_Sans_KR"
+OUTPUT_DIR = "./output"
 
 WEIGHT_MAP = {
     "Thin": "Thin", 
@@ -100,7 +107,6 @@ def fix_meta(font, family_name, weight_name, is_italic, is_wide, avg_width):
     font['OS/2'].xAvgCharWidth = avg_width
 
 def condense_font_x(font, scale_x):
-    # x방향 shrink
     hmtx = font['hmtx']
     glyf = font['glyf']
     glyph_set = font.getGlyphSet()
@@ -124,51 +130,72 @@ def condense_font_x(font, scale_x):
         else:
             hmtx[glyph_name] = (new_width, int(lsb * scale_x))
 
-def scale_kr(kr_font, target_width, is_italic=False):
-    hmtx = kr_font['hmtx']
-    glyf = kr_font['glyf']
-    cmap = kr_font.getBestCmap()
-    glyph_set = kr_font.getGlyphSet()
-
-    scale_factor = min(target_width / 892.0, 1.1)
-    # 대충 재보니까 9도쯤 돼서 tan 9 \simeq 0.1583
+def adjust_scale(font, target_width, target_upm, is_italic=False):
+    hmtx = font['hmtx']
+    glyf = font['glyf']
+    cmap = font.getBestCmap()
+    glyph_set = font.getGlyphSet()
+    
+    scale_upm = target_upm / font['head'].unitsPerEm
     slant_x = 0.1583 if is_italic else 0.0
 
+    new_glyf_data = {}
+    new_hmtx_data = {}
+
     for codepoint, glyph_name in cmap.items():
-        is_korean_range = (
+        if not (
             (0xAC00 <= codepoint <= 0xD7A3) or (0x3130 <= codepoint <= 0x318F) or
             (0x1100 <= codepoint <= 0x11FF) or (0xFF00 <= codepoint <= 0xFFEF) or
             (0x3000 <= codepoint <= 0x303F)
-        )
-        if not is_korean_range: continue
+        ): continue
 
         glyph = glyf.get(glyph_name)
-        if glyph and getattr(glyph, 'numberOfContours', 0) != 0:
-            matrix = (scale_factor, 0, slant_x * scale_factor, scale_factor, 0, 0)
-            pen1 = TTGlyphPen(glyph_set)
-            transform_pen1 = TransformPen(pen1, matrix)
-            glyph.draw(transform_pen1, glyf)
+        
+        if not glyph or getattr(glyph, 'numberOfContours', 0) == 0:
+            new_hmtx_data[glyph_name] = (target_width, 0)
+            continue
 
-            temp_glyph = pen1.glyph()
-            temp_glyph.recalcBounds(glyf)
+        w, lsb = hmtx[glyph_name]
 
-            glyph_real_width = temp_glyph.xMax - temp_glyph.xMin
-            new_lsb = int((target_width - glyph_real_width) / 2)
+        rec_pen = DecomposingRecordingPen(glyph_set)
+        glyph.draw(rec_pen, glyf)
 
-            shift_x = new_lsb - temp_glyph.xMin
-            shift_matrix = (1, 0, 0, 1, shift_x, 0)
+        transform_matrix = (scale_upm, 0, slant_x * scale_upm, scale_upm, 0, 0)
+        
+        pen_step1 = TTGlyphPen(glyph_set)
+        t_pen1 = TransformPen(pen_step1, transform_matrix)
+        rec_pen.replay(t_pen1)
+        
+        temp_glyph = pen_step1.glyph()
+        temp_glyph.recalcBounds(glyf)
 
-            pen2 = TTGlyphPen(glyph_set)
-            transform_pen2 = TransformPen(pen2, shift_matrix)
-            temp_glyph.draw(transform_pen2, glyf)
+        scaled_w = w * scale_upm
+        scaled_lsb = lsb * scale_upm
+        
+        extra_padding = target_width - scaled_w
+        
+        target_lsb = int(scaled_lsb + (extra_padding / 2))
+        shift_x = target_lsb - temp_glyph.xMin
 
-            final_glyph = pen2.glyph()
-            final_glyph.recalcBounds(glyf)
+        translate_matrix = (1, 0, 0, 1, shift_x, 0)
+        
+        pen_step2 = TTGlyphPen(glyph_set)
+        t_pen2 = TransformPen(pen_step2, translate_matrix)
+        temp_glyph.draw(t_pen2, glyf)
+        
+        final_glyph = pen_step2.glyph()
+        final_glyph.recalcBounds(glyf)
 
-            glyf[glyph_name] = final_glyph
-            hmtx[glyph_name] = (target_width, new_lsb)
-        else:
-            hmtx[glyph_name] = (target_width, 0)
+        new_glyf_data[glyph_name] = final_glyph
+        new_hmtx_data[glyph_name] = (target_width, target_lsb)
+            
+    for g_name, g_data in new_glyf_data.items():
+        glyf[g_name] = g_data
+        
+    for h_name, h_data in new_hmtx_data.items():
+        hmtx[h_name] = h_data
+            
+    font['head'].unitsPerEm = target_upm
 
 def enablecjk(font):
     for table_tag in ['GSUB', 'GPOS']:
@@ -245,6 +272,10 @@ def build_variant(latin_path, kr_path, weight_key, is_italic, is_wide, latin_tar
     latin_font = TTFont(latin_path)
     kr_font = TTFont(kr_path)
 
+    latin_cmap = latin_font.getBestCmap()
+    latin_basewidth,_ = latin_font['hmtx'][latin_cmap.get(ord('a'))]
+    latin_upm = latin_font['head'].unitsPerEm
+
     backup_tables = {}
     for tag in ["cvt ", "fpgm", "prep", "gasp"]:
         if tag in latin_font:
@@ -256,10 +287,9 @@ def build_variant(latin_path, kr_path, weight_key, is_italic, is_wide, latin_tar
     for tag in ["GSUB", "GPOS", "GDEF"]:
         if tag in kr_font: del kr_font[tag]
 
-    if latin_target_width != 600:
-        condense_font_x(latin_font, latin_target_width / 600.0)
+    if latin_target_width != latin_basewidth: condense_font_x(latin_font, latin_target_width / latin_basewidth)
 
-    scale_kr(kr_font, kr_target_width, is_italic=is_italic)
+    adjust_scale(kr_font, kr_target_width, latin_upm, is_italic)
 
     temp_latin = f"temp_latin_{out_filename}"
     temp_kr = f"temp_kr_{out_filename}"
@@ -295,35 +325,36 @@ def build_variant(latin_path, kr_path, weight_key, is_italic, is_wide, latin_tar
     for tmp in [temp_latin, temp_kr]:
         if os.path.exists(tmp): os.remove(tmp)
 
-def merge_all():
-    if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
+def merge_all(regular_only=False):
+    if os.path.exists(OUTPUT_DIR): shutil.rmtree(OUTPUT_DIR)
+    os.makedirs(OUTPUT_DIR)
 
     files = sorted([f for f in os.listdir(LATIN_DIR) if f.endswith(".ttf")])
     for f in files:
         weight_key = next((w for w in WEIGHT_MAP if w in f), "Regular")
         is_italic = "Italic" in f
 
+        if regular_only and not (weight_key == "Regular"): continue
+
         latin_path = os.path.join(LATIN_DIR, f)
         kr_path = os.path.join(KR_DIR, f"IBMPlexSansKR-{WEIGHT_MAP[weight_key]}.ttf")
 
         if not os.path.exists(kr_path): continue
-        print(f"Working: {f}")
+        print(f"Working: {f} {kr_path}")
 
-        try:
-            out_std = f.replace("Lilex", "LilexKRStd")
-            build_variant(latin_path, kr_path, weight_key, is_italic, False, 600, 1200, NEW_FAMILY_NAME_STD, out_std)
-            print(f"OK {out_std}")
+        out_std = f'{FILE_NAME_STD}-{weight_key != "Regular" and weight_key or ""}{is_italic and "Italic" or ""}.ttf'
+        build_variant(latin_path, kr_path, weight_key, is_italic, False, 600, 1200, FAMILY_NAME_STD, out_std)
+        print(f"OK {out_std}")
 
-            out_compact = f.replace("Lilex", "LilexKR528")
-            build_variant(latin_path, kr_path, weight_key, is_italic, False, 528, 1056, NEW_FAMILY_NAME_COMPACT, out_compact)
-            print(f"OK {out_compact}")
+        out_compact = f'{FILE_NAME_COMPACT}-{weight_key != "Regular" and weight_key or ""}{is_italic and "Italic" or ""}.ttf'
+        build_variant(latin_path, kr_path, weight_key, is_italic, False, 528, 1056, FAMILY_NAME_COMPACT, out_compact)
+        print(f"OK {out_compact}")
 
-            out_wide = f.replace("Lilex", "LilexKR35")
-            build_variant(latin_path, kr_path, weight_key, is_italic, True, 600, 1000, NEW_FAMILY_NAME_WIDE, out_wide)
-            print(f"OK {out_wide}")
+        out_wide = f'{FILE_NAME_WIDE}-{weight_key != "Regular" and weight_key or ""}{is_italic and "Italic" or ""}.ttf'
+        build_variant(latin_path, kr_path, weight_key, is_italic, True, 600, 1000, FAMILY_NAME_WIDE, out_wide)
+        print(f"OK {out_wide}")
 
-        except Exception as e:
-            print(f"Error {e}")
+
 
 if __name__ == "__main__":
-    merge_all()
+    merge_all(False)
