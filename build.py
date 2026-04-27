@@ -1,5 +1,6 @@
 #!/bin/env python3
 
+import io
 import os
 import shutil
 import copy
@@ -11,12 +12,12 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.pens.boundsPen import BoundsPen
-from fontTools.ttLib.tables._g_l_y_f import Glyph
+from fontTools.varLib.instancer import instantiateVariableFont
 from fontTools.subset import Subsetter, Options
-from fontTools.ttLib.tables import otTables as ot
+from fontTools.ttLib.tables import otTables
 from ttfautohint import ttfautohint
 
-FONT_VERSION="1.004"
+FONT_VERSION="1.005"
 
 LATIN_DIR = "./source/Lilex"
 LATIN_FILENAME = "Lilex-{style}.ttf"
@@ -75,7 +76,6 @@ def fix_meta(font, family_name, weight_name, is_italic, is_wide, avg_width):
     is_bold_style = (weight_name == 'Bold')
     is_regular_style = (weight_name == 'Regular')
     
-    # PPT 등지에서 italic이 제대로 처리 안되는데... 
     if is_regular_style or is_bold_style:
         legacy_family = family_name
         if is_regular_style: legacy_subfamily = 'Italic' if is_italic else 'Regular'
@@ -92,7 +92,7 @@ def fix_meta(font, family_name, weight_name, is_italic, is_wide, avg_width):
     clean_family = family_name.replace(" ", "")
     clean_sub = typo_subfamily.replace(" ", "")
     ps_name = f"{clean_family}-{clean_sub}"
-    unique_id = f"1.000;MYRT;{ps_name}"
+    unique_id = f"{FONT_VERSION};MYRT;{ps_name}"
 
     replace_map = {
         1: legacy_family, 
@@ -140,43 +140,62 @@ def fix_meta(font, family_name, weight_name, is_italic, is_wide, avg_width):
     font['OS/2'].ulCodePageRange1 |= (1 << 19)
     font['OS/2'].xAvgCharWidth = avg_width
 
-def condense_font_x(font, scale_x):
+def adjust_latin(font, base_width, target_glyph_width, target_advance_width, scale_y):
     hmtx = font['hmtx']
     glyf = font['glyf']
     glyph_set = font.getGlyphSet()
+
+    glyph_scale_x = target_glyph_width / base_width
+    advance_scale_x = target_advance_width / base_width
 
     new_glyf_data = {}
     new_hmtx_data = {}
 
     for glyph_name in list(glyf.keys()):
-        width, lsb = hmtx[glyph_name]
-        new_width = int(width * scale_x)
+        if glyph_name not in hmtx.metrics: continue
+        w, lsb = hmtx.metrics[glyph_name]
+        new_w = int(w * advance_scale_x)
 
         glyph = glyf.get(glyph_name)
         if glyph and getattr(glyph, 'numberOfContours', 0) != 0:
             rec_pen = DecomposingRecordingPen(glyph_set)
             glyph.draw(rec_pen, glyf)
 
-            matrix = (scale_x, 0, 0, 1.0, 0, 0)
-            pen = TTGlyphPen(glyph_set)
-            transform_pen = TransformPen(pen, matrix)
-            rec_pen.replay(transform_pen)
-            
-            new_glyph = pen.glyph()
-            new_glyph.recalcBounds(glyf)
-            
-            new_glyf_data[glyph_name] = new_glyph
-            new_hmtx_data[glyph_name] = (new_width, int(lsb * scale_x))
+            transform_matrix = (glyph_scale_x, 0, 0, scale_y, 0, 0)
+            pen_step1 = TTGlyphPen(glyph_set)
+            t_pen1 = TransformPen(pen_step1, transform_matrix)
+            rec_pen.replay(t_pen1)
+
+            temp_glyph = pen_step1.glyph()
+            temp_glyph.recalcBounds(glyf)
+
+            scaled_w_original = w * glyph_scale_x
+            scaled_lsb = lsb * glyph_scale_x
+
+            extra_padding = new_w - scaled_w_original
+            target_lsb = int(scaled_lsb + (extra_padding / 2))
+
+            shift_x = target_lsb - temp_glyph.xMin
+
+            translate_matrix = (1, 0, 0, 1, shift_x, 0)
+            pen_step2 = TTGlyphPen(glyph_set)
+            t_pen2 = TransformPen(pen_step2, translate_matrix)
+            temp_glyph.draw(t_pen2, glyf)
+
+            final_glyph = pen_step2.glyph()
+            final_glyph.recalcBounds(glyf)
+
+            new_glyf_data[glyph_name] = final_glyph
+            new_hmtx_data[glyph_name] = (new_w, target_lsb)
         else:
-            new_hmtx_data[glyph_name] = (new_width, int(lsb * scale_x))
+            new_hmtx_data[glyph_name] = (new_w, int(lsb * advance_scale_x))
 
     for g_name, g_data in new_glyf_data.items():
         glyf[g_name] = g_data
-    for h_name, h_data in new_hmtx_data.items():
-        hmtx[h_name] = h_data
+        
+    hmtx.metrics.update(new_hmtx_data)
 
-
-def adjust_font(font, target_font, target_width, target_upm, slant_degree, baseline_char_latin, baseline_char_kr):
+def adjust_kr(font, target_font, target_width, target_upm, slant_degree, boost_ratio, baseline_char_latin, baseline_char_kr):
     hmtx = font['hmtx']
     glyf = font['glyf']
     cmap = font.getBestCmap()
@@ -197,11 +216,11 @@ def adjust_font(font, target_font, target_width, target_upm, slant_degree, basel
     s_ymin, s_ymax = pen_s.bounds[1], pen_s.bounds[3]
     s_height = s_ymax - s_ymin
 
-    scale_factor = t_height / s_height
-    
-    y_scale = scale_factor * 1.05 
-    
-    shift_y = t_ymin - (s_ymin * y_scale)
+    base_scale = t_height / s_height
+    uniform_scale = base_scale * boost_ratio
+
+    target_ymin = t_ymin - (t_height * 0.00)
+    shift_y = target_ymin - (s_ymin * uniform_scale)
     
     slant_x = math.tan(slant_degree * 3.1416 / 180.0)
 
@@ -226,7 +245,7 @@ def adjust_font(font, target_font, target_width, target_upm, slant_degree, basel
         rec_pen = DecomposingRecordingPen(glyph_set)
         glyph.draw(rec_pen, glyf)
 
-        transform_matrix = (scale_factor, 0, slant_x * y_scale, y_scale, 0, shift_y)
+        transform_matrix = (uniform_scale, 0, slant_x * uniform_scale, uniform_scale, 0, shift_y)
         
         pen_step1 = TTGlyphPen(glyph_set)
         t_pen1 = TransformPen(pen_step1, transform_matrix)
@@ -235,8 +254,8 @@ def adjust_font(font, target_font, target_width, target_upm, slant_degree, basel
         temp_glyph = pen_step1.glyph()
         temp_glyph.recalcBounds(glyf)
 
-        scaled_w = w * scale_factor
-        scaled_lsb = lsb * scale_factor
+        scaled_w = w * uniform_scale
+        scaled_lsb = lsb * uniform_scale
         
         extra_padding = target_width - scaled_w
         target_lsb = int(scaled_lsb + (extra_padding / 2))
@@ -307,15 +326,15 @@ def enablecjk(font):
         
         for tag in target_tags:
             if tag not in existing_tags:
-                new_record = ot.ScriptRecord()
+                new_record = otTables.ScriptRecord()
                 new_record.ScriptTag = tag
-                new_record.Script = ot.Script()
+                new_record.Script = otTables.Script()
                 new_record.Script.DefaultLangSys = copy.deepcopy(source_record.Script.DefaultLangSys)
                 new_record.Script.LangSysRecord = []
                 new_record.Script.LangSysCount = 0
                 
                 if tag == 'hang':
-                    lang_sys_record = ot.LangSysRecord()
+                    lang_sys_record = otTables.LangSysRecord()
                     lang_sys_record.LangSysTag = 'KOR '
                     lang_sys_record.LangSys = copy.deepcopy(source_record.Script.DefaultLangSys)
                     new_record.Script.LangSysRecord.append(lang_sys_record)
@@ -344,36 +363,46 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
     out_filename = OUTPUT_FILENAME.format_map({"filename": family_name.replace(' ', ''), "style": style})
     print(f"Working: {out_filename}")
 
-    temp_latin_reference = f"temp/temp_latin_reference_{out_filename}"
-    latin_font.save(temp_latin_reference)
-    
+    buffer0 = io.BytesIO()
+    buffer1 = io.BytesIO()
+
+    latin_font.save(buffer0)
+
     latin_metrics = copy.deepcopy(latin_font['OS/2'])
     latin_hhea = copy.deepcopy(latin_font['hhea'])
 
     clean(latin_font)
     clean(kr_font)
     
-    if latin_target_width != latin_basewidth: 
-        condense_font_x(latin_font, latin_target_width / latin_basewidth)
-
-    adjust_font(kr_font, latin_font, kr_target_width, latin_upm, is_italic*slant_degree, 'X', '모')
+    adjust_latin(latin_font, latin_basewidth, latin_basewidth*0.6+latin_target_width*0.4, latin_target_width, 0.985)
+    adjust_kr(kr_font, latin_font, kr_target_width, latin_upm, is_italic*slant_degree, 1.05 / 0.985, 'X', '모')
     filter_kr(kr_font)
-    
-    temp_latin_unhinted = f"temp/temp_latin_unhinted_{out_filename}"
-    temp_latin_hinted = f"temp/temp_latin_hinted_{out_filename}"
-    temp_kr = f"temp/temp_kr_{out_filename}"
 
-    latin_font.save(temp_latin_unhinted)
-    kr_font.save(temp_kr)
+    latin_font.save(buffer1)
 
-    ttfautohint(
-        in_file=temp_latin_unhinted,
-        out_file=temp_latin_hinted,
-        reference_file=temp_latin_reference,
-        windows_compatibility=True,
+    hinted = ttfautohint(
+        in_buffer=buffer1.getvalue(),
+        windows_compatibility=False,
+        symbol=False,
+        increase_x_height=14,
+        gray_stem_width_mode=0,
+        gdi_cleartype_stem_width_mode=0,
+        dw_cleartype_stem_width_mode=0
     )
 
-    merged = Merger().merge([temp_latin_hinted, temp_kr])
+    buffer0.seek(0)
+    buffer1.seek(0)
+
+    buffer0.write(hinted)
+    kr_font.save(buffer1)
+
+    buffer0.seek(0)
+    buffer1.seek(0)
+
+    merged = Merger().merge([buffer0, buffer1])
+
+    buffer0.close()
+    buffer1.close()
 
     merged['OS/2'].sTypoAscender = latin_metrics.sTypoAscender
     merged['OS/2'].sTypoDescender = latin_metrics.sTypoDescender
@@ -384,7 +413,7 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
     merged['hhea'].descent = latin_hhea.descent
     merged['hhea'].lineGap = latin_hhea.lineGap
 
-    fix_meta(merged, family_name, weight_key, is_italic, is_wide, avg_width=latin_target_width)
+    fix_meta(merged, family_name, weight_key, is_italic, is_wide, latin_target_width)
     enablecjk(merged)
 
     if 'GDEF' in merged and hasattr(merged['GDEF'].table, 'GlyphClassDef') and merged['GDEF'].table.GlyphClassDef:
@@ -398,7 +427,7 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
             )
             if is_cjk and glyph_name not in gdef_class:
                 gdef_class[glyph_name] = 1
-    
+
     dir_path = os.path.join('output', family_name)
     all_path = 'output/all'
     if not os.path.exists(dir_path): os.makedirs(dir_path, exist_ok=True)
@@ -407,9 +436,11 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
     merged.save(os.path.join(dir_path, out_filename))
     shutil.copyfile(os.path.join(dir_path, out_filename), os.path.join(all_path, out_filename))
 
-    for tmp in [temp_latin_unhinted, temp_latin_hinted, temp_latin_reference, temp_kr]:
-        if os.path.exists(tmp): os.remove(tmp)
+    latin_font.close()
+    kr_font.close()
+    merged.close()
 
+import traceback
 def _worker_build(task):
     weight = task['weight']
     is_italic = task['is_italic']
@@ -421,17 +452,21 @@ def _worker_build(task):
     latin_font = get_latin_font(weight, is_italic)
     kr_font = get_kr_font(weight)
 
-    build_variant(
-        latin_font=latin_font,
-        kr_font=kr_font,
-        weight_key=weight,
-        is_italic=is_italic,
-        is_wide=is_wide,
-        latin_target_width=latin_target_width,
-        kr_target_width=kr_target_width,
-        slant_degree=8.5,
-        family_name=family_name
-    )
+    try:
+        build_variant(
+            latin_font=latin_font,
+            kr_font=kr_font,
+            weight_key=weight,
+            is_italic=is_italic,
+            is_wide=is_wide,
+            latin_target_width=latin_target_width,
+            kr_target_width=kr_target_width,
+            slant_degree=8.5,
+            family_name=family_name
+        )
+
+    except Exception:
+        traceback.print_exc()  
 
 def merge_all(regular_only=False):
     if os.path.exists(OUTPUT_DIR): shutil.rmtree(OUTPUT_DIR)
