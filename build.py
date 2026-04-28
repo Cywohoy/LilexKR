@@ -15,9 +15,10 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.varLib.instancer import instantiateVariableFont
 from fontTools.subset import Subsetter, Options
 from fontTools.ttLib.tables import otTables
+from fontTools.ttLib.tables._g_a_s_p import table__g_a_s_p
 from ttfautohint import ttfautohint
 
-FONT_VERSION="1.005"
+FONT_VERSION="1.006"
 
 LATIN_DIR = "./source/Lilex"
 LATIN_FILENAME = "Lilex-{style}.ttf"
@@ -366,34 +367,19 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
     buffer0 = io.BytesIO()
     buffer1 = io.BytesIO()
 
-    latin_font.save(buffer0)
-
     latin_metrics = copy.deepcopy(latin_font['OS/2'])
     latin_hhea = copy.deepcopy(latin_font['hhea'])
 
     clean(latin_font)
     clean(kr_font)
     
-    adjust_latin(latin_font, latin_basewidth, latin_basewidth*0.6+latin_target_width*0.4, latin_target_width, 0.985)
-    adjust_kr(kr_font, latin_font, kr_target_width, latin_upm, is_italic*slant_degree, 1.05 / 0.985, 'X', '모')
+    new_width = (latin_basewidth * 0.3 + latin_target_width * 0.7)
+
+    adjust_latin(latin_font, latin_basewidth, new_width, latin_target_width, 1.05)
+    adjust_kr(kr_font, latin_font, kr_target_width, latin_upm, is_italic*slant_degree, 1.06 / 1.05, 'X', '모')
     filter_kr(kr_font)
 
-    latin_font.save(buffer1)
-
-    hinted = ttfautohint(
-        in_buffer=buffer1.getvalue(),
-        windows_compatibility=False,
-        symbol=False,
-        increase_x_height=14,
-        gray_stem_width_mode=0,
-        gdi_cleartype_stem_width_mode=0,
-        dw_cleartype_stem_width_mode=0
-    )
-
-    buffer0.seek(0)
-    buffer1.seek(0)
-
-    buffer0.write(hinted)
+    latin_font.save(buffer0)
     kr_font.save(buffer1)
 
     buffer0.seek(0)
@@ -412,6 +398,10 @@ def build_variant(latin_font, kr_font, weight_key, is_italic, is_wide, latin_tar
     merged['hhea'].ascent = latin_hhea.ascent
     merged['hhea'].descent = latin_hhea.descent
     merged['hhea'].lineGap = latin_hhea.lineGap
+    
+    gasp_table = table__g_a_s_p()
+    gasp_table.gaspRange = {0xFFFF: 15}
+    merged['gasp'] = gasp_table
 
     fix_meta(merged, family_name, weight_key, is_italic, is_wide, latin_target_width)
     enablecjk(merged)
@@ -461,7 +451,7 @@ def _worker_build(task):
             is_wide=is_wide,
             latin_target_width=latin_target_width,
             kr_target_width=kr_target_width,
-            slant_degree=8.5,
+            slant_degree=9,
             family_name=family_name
         )
 
@@ -478,19 +468,19 @@ def merge_all(regular_only=False):
     for (weight,is_italic) in styles:
         tasks.append({
             'weight': weight, 'is_italic': is_italic,
-            'family_name': f'LilexKR Std',
+            'family_name': f'Reflex KR Std',
             'is_wide': False, 'latin_target_width': 600, 'kr_target_width': 1200
         })
         
         tasks.append({
             'weight': weight, 'is_italic': is_italic,
-            'family_name': f'LilexKR 528',
+            'family_name': f'Reflex KR 528',
             'is_wide': True, 'latin_target_width': 528, 'kr_target_width': 1056
         })
         
         tasks.append({
             'weight': weight, 'is_italic': is_italic,
-            'family_name': f'LilexKR 35',
+            'family_name': f'Reflex KR 35',
             'is_wide': True, 'latin_target_width': 600, 'kr_target_width': 1000
         })
 

@@ -1,5 +1,5 @@
-## LilexKR
-[Lilex](https://github.com/mishamyrt/lilex)를 기반으로 [IBM Plex Sans KR](https://www.ibm.com/plex/)의 한글 글리프를 합쳤습니다. 따라서 Ligature(합자)을 지원하는 자연스러운 한글 고정폭 글꼴을 체험할 수 있습니다. 특히, 한글과 한글 사이에 놓인 Ligature (가 => 나 등)을 정상적으로 지원합니다.
+## Reflex KR
+[Lilex](https://github.com/mishamyrt/lilex)를 기반으로 [IBM Plex Sans KR](https://www.ibm.com/plex/)의 한글 글리프를 병합 후 간단한 수정을 거친 글꼴입니다. 따라서 Ligature(합자)을 지원하는 자연스러운 한글 고정폭 글꼴을 체험할 수 있습니다. 특히, 한글과 한글 사이에 놓인 Ligature (가 => 나 등)을 정상적으로 지원합니다.
 
 ## 구성
 | 폰트명 | 반각 문자(ASCII) 너비 | 한글 너비 | 고정폭 여부 | Ligature 지원 |
@@ -9,14 +9,16 @@
 | Lilex | 600 | – | O | O |
 | Monoplex KR | 528 | 1056 | O | X |
 | Monoplex KR Wide | 600 | 1000 | O | X |
-| **LilexKR Std** | 600 | 1200 | O | O |
-| **LilexKR 528** | 528 | 1056 | O | O |
-| **LilexKR 35** | 600 | 1000 | X (3:5 비율) | O |
+| **Reflex KR Std** | 600 | 1200 | O | O |
+| **Reflex KR 528** | 528 | 1056 | O | O |
+| **Reflex KR 35** | 600 | 1000 | X (3:5 비율) | O |
 
-한글이 주로 쓰이는 환경에서는 **LilexKR 528**이, 주석 등의 제한적인 부분만 한글로 사용하는 환경에서는 **LilexKR Std** 혹은 **Lilex KR 35**를 사용하는 것이 가독성이 좋습니다. **LilexKR 35**는 **LilexKR Std**보다 한글의 자간이 좁아 가독성 측면에서 나으나, 완전한 1:2 비율 고정폭 글꼴이 아니기에 줄이 똑바르지 않은 곳이 존재할 수 있습니다.
+한글이 주로 쓰이는 환경에서는 **Reflex KR 528**이, 주석 등의 제한적인 부분만 한글로 사용하는 환경에서는 **Reflex KR Std** 혹은 **Reflex KR 35**를 사용하는 것이 가독성이 좋습니다. **Reflex KR 35**는 **Reflex KR Std**보다 한글의 자간이 좁아 가독성 측면에서 나으나, 완전한 1:2 비율 고정폭 글꼴이 아니기에 줄이 똑바르지 않은 곳이 존재할 수 있습니다.
+
+본래 힌팅을 위해 ttfautohint를 사용하였으나, 합자 등의 부분에서 오토힌팅이 문제를 일으키고 한글과 조화롭게 보이지 않아 배제했습니다. Lilex/IBM Plex Sans KR의 힌팅을 직접 적용할 수 있는 방법이 존재하거나 수동 힌팅을 하지 않는 한 힌팅을 다시 복구할 계획은 없습니다. 이는 [Casquare Code](https://github.com/Cywohoy/CasquareCode)도 마찬가지입니다.
 
 ## 라이선스
-Lilex KR 시리즈는 SIL Open Font License 1.1에 따라 배포됩니다.
+Reflex KR 시리즈는 SIL Open Font License 1.1에 따라 배포됩니다.
 
 이 프로젝트는 다음의 원본 폰트들을 기반으로 제작되었습니다:
  * Lilex: Copyright (c) 2019, The Lilex Project Authors (OFL 1.1; https://github.com/mishamyrt/Lilex/blob/master/OFL.txt)
@@ -50,3 +52,7 @@ Lilex KR 시리즈는 SIL Open Font License 1.1에 따라 배포됩니다.
 - 한글 글리프 및 라틴 글리프의 크기 조정
 - 힌팅 조정
 - 528 패밀리의 라틴 글리프의 폭 확대
+
+### v1.006
+- Lilex의 KR 버전이라기엔 부족한 점이 많아서 이름을 개칭했습니다.
+- 힌팅 제거 및 전반적 재조정
